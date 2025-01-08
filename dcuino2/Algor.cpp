@@ -248,9 +248,9 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       if(iflag>4){
         zflag=5;
         zfref=PRM_ReadData(48);  //fvalue reference
-        z1integ=satuate(z1integ*PRM_ReadData(50)/100,0,100-PRM_ReadData(49)); //initial value valid ratio
+        z1integ=satuate(z2integ*PRM_ReadData(50)/100,0,100-PRM_ReadData(49)); //initial value valid ratio
         setTimeout.set(zfunc=[](){
-          z1integ+=(fvalue-zfref)*(int)PRM_ReadData(51)*0.05/100;
+          z1integ+=(fvalue-zfref)*(int)PRM_ReadData(51)/1000;
           z1integ=satuate(z1integ,0,100-PRM_ReadData(49));
           if(dcore::RunLevel>0){
             setTimeout.set(zfunc,20);
@@ -258,7 +258,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         },20);
       }
       if(PRM_ReadData(3)==4) logger::stage.eval=satuate(z2integ,0,255);
-      else if(PRM_ReadData(3)==5) logger::stage.eval=satuate(z1integ,0,255);
+      else if(PRM_ReadData(3)==5) logger::stage.eval=satuate(z2integ,0,255);
       break;
     }
     case 5:{ //Steady state(PI control)
