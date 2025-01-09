@@ -102,7 +102,7 @@ namespace pwm{//methods for pwm
     if(!Block){
       int32_t tnow=micros();
 //    int32_t tnex=sens::Tm+sens::Interval-T_WAIT;
-      int32_t tnex=sens::Tm+sens::Interval*9/10;
+      int32_t tnex=sens::Tm+sens::Interval*19/20;
       Treq=(long)Interval*Duty>>8;
       if(tnow+Treq-tnex>0){
         int dt=tnex-tnow;

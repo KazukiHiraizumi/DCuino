@@ -30,7 +30,7 @@ static int16_t ivmax;
 static float ibbase;
 //controls
 static uint8_t zflag,zovrd;
-static float z1integ,z2integ;
+static float zinteg;
 static void (*zfunc)();
 static int16_t zfref;
 //table
@@ -44,6 +44,7 @@ static uint16_t fdbase;
 #define MAX(a,b) ((a)>(b)? a:b)
 #define MIN(a,b) ((a)<(b)? a:b)
 #define ARRSZ(a) (sizeof(a)/sizeof(a[0]))
+#define DOMAIN(x,a,b) ((x)>=(a) && (x)<=(b))
 
 /**************************************************************************/
 static int satuate(int val,int lo =0, int hi =255){
@@ -167,6 +168,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         bh=ibbase=0;
         setPol(PRM_ReadData(6),0);
         dcore::shift();  //RunLevel =>4
+        setTimeout.set(dcore::shift,20);  //RunLevel =>6
         break;
       }
       break;
@@ -177,6 +179,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         iflag=3;
         ibbase=bh;
         dcore::shift();  //RunLevel =>4
+        setTimeout.set(dcore::shift,20);  //RunLevel =>6
       }
       break;
     case 3:
@@ -211,16 +214,13 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       return ivmax;
   }
 
-  auto integfB= [&](float& integ,float b){
-    integ+=0.5*b*dt;
-  };
   int zcmd=ivalue*zovrd/100;
   switch(zflag){
     case 0:   //speed is low
       zflag=1;
       zovrd=PRM_ReadData(42);
       zfunc=NULL;
-      z1integ=z2integ=0;  //integral
+      zinteg=0;  //integral
     case 1:
       zflag=iflag;
       zcmd=0;
@@ -237,32 +237,30 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
     case 4:{  //Collision state(Sliding mode control)
       if(sigma>0){
         zcmd=ivmax*PRM_ReadData(44)/100;    //low brake
-        integfB(z2integ,bh);
+        zinteg+=bh*dt/2;
       }
       else{
         int zmin=ivmax*PRM_ReadData(45)/100;
-        zcmd-=zcmd*satuate(z2integ*(int)PRM_ReadData(46)/100,0,100)/100;
+        zcmd-=zcmd*satuate(zinteg*PRM_ReadData(46)/100,0,100)/100;
         if(zcmd<zmin) zcmd=zmin;
       }
-      integfB(z1integ,sigma);
       if(iflag>4){
         zflag=5;
         zfref=PRM_ReadData(48);  //fvalue reference
-        z1integ=satuate(z2integ*PRM_ReadData(50)/100,0,100-PRM_ReadData(49)); //initial value valid ratio
+        zinteg=satuate(zinteg*PRM_ReadData(46)/100*PRM_ReadData(50)/100,0,100-PRM_ReadData(49)); //initial value valid ratio
         setTimeout.set(zfunc=[](){
-          z1integ+=(fvalue-zfref)*(int)PRM_ReadData(51)/1000;
-          z1integ=satuate(z1integ,0,100-PRM_ReadData(49));
+          zinteg+=(fvalue-zfref)*(int)PRM_ReadData(51)/1000;
+          zinteg=satuate(zinteg,0,100-PRM_ReadData(49));
           if(dcore::RunLevel>0){
             setTimeout.set(zfunc,20);
           }
         },20);
       }
-      if(PRM_ReadData(3)==4) logger::stage.eval=satuate(z2integ,0,255);
-      else if(PRM_ReadData(3)==5) logger::stage.eval=satuate(z2integ,0,255);
+      if(DOMAIN(PRM_ReadData(3),4,5)) logger::stage.eval=satuate(zinteg,0,255);
       break;
     }
     case 5:{ //Steady state(PI control)
-      zcmd-=zcmd*z1integ/100;
+      zcmd-=zcmd*zinteg/100;
       float err=fvalue-zfref;
       if(err>0)
         zcmd-=zcmd*err*PRM_ReadData(53)/100/100;
@@ -270,7 +268,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         zcmd+=zcmd*(-err)*PRM_ReadData(54)/100/100;
       int zmin=ivmax*PRM_ReadData(52)/100;
       if(zcmd<zmin) zcmd=zmin;
-      if(PRM_ReadData(3)==5) logger::stage.eval=satuate(z1integ,0,255);
+      if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zinteg,0,255);
       break;
     }
   }
