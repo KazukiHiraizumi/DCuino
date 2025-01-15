@@ -46,16 +46,22 @@ static int variation(int tspan,int cutoff,int scale,int base=0,int para=0){
     invert3x3(src,inv);
     a_coef=(inv[0]*sn2v+inv[1]*sn1v+inv[2]*sn0v)*sn0*sn0;
   }
-  float sigv=0;
+  float xmean=0;
   for(int i=1;i<vsamp;i++){
     float er=pv[i].beta-pv[i-1].beta;
-    sigv+=er*er;
+    xmean+=er;
   }
-  sigv=sqrt(sigv/(vsamp-1));
+  xmean=xmean/(vsamp-1);
+  float xsig=0;
+  for(int i=1;i<vsamp;i++){
+    float er=pv[i].beta-pv[i-1].beta-xmean;
+    xsig+=er*er;
+  }
+  xsig=sqrt(xsig/(vsamp-1));
 
   float sc=1.0/(1<<(scale%100));
   float atn=fabs(a_coef)*cutoff;
 //  return sc*sigv*(atn<10000? (10000-atn)/10000:0);
-  return sc*sigv*exp(-atn*atn/1e11);
+  return sc*xsig*exp(-atn*atn/1e11);
 }
 

@@ -10,7 +10,7 @@ static NRF52_MBED_Timer ITimer0(NRF_TIMER_3);   //PWM
 static NRF52_MBED_Timer ITimer1(NRF_TIMER_4);   //Debouncer and PWM blocker
 
 #define T_PWM_MIN 70 //usec
-//#define T_WAIT 500 //usec
+#define T_WAIT 200 //usec
 #define T_BOUNCE 200  //usec
 #define T_INTR_MIN 1000 //usec
 
@@ -101,8 +101,9 @@ namespace pwm{//methods for pwm
     Count--;
     if(!Block){
       int32_t tnow=micros();
-//    int32_t tnex=sens::Tm+sens::Interval-T_WAIT;
-      int32_t tnex=sens::Tm+sens::Interval*19/20;
+      int32_t tnex=sens::Tm+sens::Interval-T_WAIT;
+      int32_t tnex2=sens::Tm+sens::Interval*19/20;
+      if(tnex>tnex2) tnex=tnex2;
       Treq=(long)Interval*Duty>>8;
       if(tnow+Treq-tnex>0){
         int dt=tnex-tnow;

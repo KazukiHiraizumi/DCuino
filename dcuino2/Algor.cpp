@@ -168,7 +168,6 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         bh=ibbase=0;
         setPol(PRM_ReadData(6),0);
         dcore::shift();  //RunLevel =>4
-        setTimeout.set(dcore::shift,20);  //RunLevel =>6
         break;
       }
       break;
@@ -179,7 +178,6 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         iflag=3;
         ibbase=bh;
         dcore::shift();  //RunLevel =>4
-        setTimeout.set(dcore::shift,20);  //RunLevel =>6
       }
       break;
     case 3:
@@ -201,13 +199,20 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
           int cutoff=PRM_ReadData(21);
           int fc=variation(span1,cutoff,scale,fdbase,1);
           if(fc>=0) fvalue=fc;
-          if(sigduty(PRM_ReadData1000x(16))<PRM_ReadData(17)) iflag=5;
+          if(iflag==4 && sigduty(PRM_ReadData1000x(16))<PRM_ReadData(17)){
+            iflag=5;
+            dcore::shift();
+          }
           if(dcore::RunLevel>0){
             setTimeout.set(ffunc,20);
           }
         },PRM_ReadData(16));
       }
     case 5:
+      if(ibbase<bh){
+        ibbase=bh;
+        fdbase=logger::length();
+      }
       if(PRM_ReadData(7)>0 && bh<-(int)PRM_ReadData100x(7)) iflag=6;
       break;
     case 6:
@@ -239,15 +244,17 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         zcmd=ivmax*PRM_ReadData(44)/100;    //low brake
         zinteg+=bh*dt/2;
       }
-      else{
+      int zadp=zinteg*PRM_ReadData(46)/100;
+      if(sigma<=0){
         int zmin=ivmax*PRM_ReadData(45)/100;
-        zcmd-=zcmd*satuate(zinteg*PRM_ReadData(46)/100,0,100)/100;
+        zcmd-=zcmd*satuate(zadp,0,100)/100;
         if(zcmd<zmin) zcmd=zmin;
       }
       if(iflag>4){
         zflag=5;
         zfref=PRM_ReadData(48);  //fvalue reference
-        zinteg=satuate(zinteg*PRM_ReadData(46)/100*PRM_ReadData(50)/100,0,100-PRM_ReadData(49)); //initial value valid ratio
+        if(PRM_ReadData(50)&1) zinteg=PRM_ReadData(50);
+        else zinteg=satuate(zadp*PRM_ReadData(50)/100,0,100-PRM_ReadData(49)); //initial value valid ratio
         setTimeout.set(zfunc=[](){
           zinteg+=(fvalue-zfref)*(int)PRM_ReadData(51)/1000;
           zinteg=satuate(zinteg,0,100-PRM_ReadData(49));
@@ -256,7 +263,8 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
           }
         },20);
       }
-      if(DOMAIN(PRM_ReadData(3),4,5)) logger::stage.eval=satuate(zinteg,0,255);
+      if(PRM_ReadData(3)==4) logger::stage.eval=satuate(zinteg,0,255);
+      else if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zadp,0,255);
       break;
     }
     case 5:{ //Steady state(PI control)
