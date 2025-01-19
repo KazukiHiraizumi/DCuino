@@ -6,17 +6,18 @@
 #include "Dcore.h"
 #include "Ble.h"
 
-#include "unittest/vari2.h"
+#include "unittest/vari4.h"
+#define variation vari4
 
 //params
 uint8_t algor_param[]={
-  0,0,0,0,  130,100,100,0,
-  20,30,10,30,  20,17,50,10,
-  5,0,10,20,  30,8,6,5,
-  0,155,13,159,  27,145,45,101,
-  79,69,128,39,  189,23,255,19,
-  0,50,10,50,  10,100,30,100,
-  255,255,255,255,  255,255,255,255
+  1,5,0,0,  150,200,50,0,
+  120,30,0,0,  150,200,10,150,
+  150,20,0,0,  200,40,0,0,
+  0,115,12,120,  25,117,33,107,
+  64,60,128,30,  193,25,255,25,
+  200,100,50,0,  10,50,60,0,
+  50,30,45,50,  10,120,120,0
 };
 
 //elapsed time
@@ -194,12 +195,18 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       if(ffunc==NULL){
         fdbase=logger::length();
         setTimeout.set(ffunc=[](){
-          int span1=PRM_ReadData1000x(20);
-          int scale=PRM_ReadData(22);
-          int cutoff=PRM_ReadData(21);
-          int fc=variation(span1,cutoff,scale,fdbase,1);
-          if(fc>=0) fvalue=fc;
-          if(iflag==4 && sigduty(PRM_ReadData1000x(16))<PRM_ReadData(17)){
+          int span1=PRM_ReadData1000x(16);
+          int np1=PRM_ReadData10x(18);
+          int np2=PRM_ReadData10x(19);
+          float cutoff=PRM_ReadData(20);
+          float scale=0.1*PRM_ReadData(21);
+          float fc=0;
+          for(int n=0;n<=4;n++){
+            float period=interp(np1,np2,4,n)*0.01;
+            fc+=variation(span1,period,cutoff);
+          }
+          fvalue=fc/5*scale;
+          if(iflag==4 && sigduty(span1)<PRM_ReadData(17)){
             iflag=5;
             dcore::shift();
           }
@@ -209,10 +216,6 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         },PRM_ReadData(16));
       }
     case 5:
-      if(ibbase<bh){
-        ibbase=bh;
-        fdbase=logger::length();
-      }
       if(PRM_ReadData(7)>0 && bh<-(int)PRM_ReadData100x(7)) iflag=6;
       break;
     case 6:
@@ -270,10 +273,8 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
     case 5:{ //Steady state(PI control)
       zcmd-=zcmd*zinteg/100;
       float err=fvalue-zfref;
-      if(err>0)
-        zcmd-=zcmd*err*PRM_ReadData(53)/100/100;
-      else
-        zcmd+=zcmd*(-err)*PRM_ReadData(54)/100/100;
+      float kp= err>0? PRM_ReadData(53):PRM_ReadData(54);
+      zcmd-=zcmd*err*kp/100/100;
       int zmin=ivmax*PRM_ReadData(52)/100;
       if(zcmd<zmin) zcmd=zmin;
       if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zinteg,0,255);
