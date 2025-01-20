@@ -6,8 +6,8 @@
 #include "Dcore.h"
 #include "Ble.h"
 
-#include "unittest/vari4.h"
-#define variation vari4
+#include "unittest/vari5.h"
+#define variation vari5
 
 //params
 uint8_t algor_param[]={
@@ -38,9 +38,11 @@ static int16_t zfref;
 static uint8_t tbl_index;
 //Ocillation analyzer
 #define FFTN 32  //samples
+#define FSEG 7  //freq segment
 static int32_t fvalue;
 static void (*ffunc)();
 static uint16_t fdbase;
+static uint32_t felaps;
 //Macros
 #define MAX(a,b) ((a)>(b)? a:b)
 #define MIN(a,b) ((a)<(b)? a:b)
@@ -115,6 +117,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
     revs=iprof=iflag=zflag=0;
     wmax=wh=wro=wrps;
     bh=0;
+    felaps=0;
     setPol(PRM_ReadData(5),0);
   }
   revs++;
@@ -144,6 +147,8 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
   logger::stage.sigma=satuate(round(sigma),-32768,32767);
   switch(PRM_ReadData(3)){
     case 0: logger::stage.eval=satuate(iflag*20,0,255); break;
+    case 1: logger::stage.eval=satuate(bh-bho,0,255); break;
+    case 2: logger::stage.eval=satuate(felaps/100,0,255); break;
     case 4: logger::stage.eval=satuate(fvalue,0,255); break;
   }
 
@@ -195,17 +200,21 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       if(ffunc==NULL){
         fdbase=logger::length();
         setTimeout.set(ffunc=[](){
+          int t0=micros();
           int span1=PRM_ReadData1000x(16);
           int np1=PRM_ReadData10x(18);
           int np2=PRM_ReadData10x(19);
-          float cutoff=PRM_ReadData(20);
-          float scale=0.1*PRM_ReadData(21);
-          float fc=0;
-          for(int n=0;n<=4;n++){
-            float period=interp(np1,np2,4,n)*0.01;
-            fc+=variation(span1,period,cutoff);
+          int cutoff=PRM_ReadData(20);
+          int scale=PRM_ReadData(21);
+          int fc[FSEG];
+          for(int n=0;n<FSEG;n++){
+            int period=interp(np1,np2,FSEG-1,n);
+            fc[n]=variation(span1,period,cutoff);
           }
-          fvalue=fc/5*scale;
+          qsort(fc,FSEG,sizeof(fc[0]),[](const void *a, const void *b){
+            return *(int*)b-*(int*)a; //sort downward
+          });
+          fvalue=(fc[0]+fc[1]+fc[2])>>scale;
           if(iflag==4 && sigduty(span1)<PRM_ReadData(17)){
             iflag=5;
             dcore::shift();
@@ -213,6 +222,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
           if(dcore::RunLevel>0){
             setTimeout.set(ffunc,20);
           }
+          felaps=micros()-t0;
         },PRM_ReadData(16));
       }
     case 5:
