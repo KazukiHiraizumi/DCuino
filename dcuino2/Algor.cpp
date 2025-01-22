@@ -6,8 +6,8 @@
 #include "Dcore.h"
 #include "Ble.h"
 
-#include "unittest/vari5.h"
-#define variation vari5
+#define APPROX 3    //available choice [1,2,3]
+#include "unittest/lbft.h"
 
 //params
 uint8_t algor_param[]={
@@ -37,12 +37,12 @@ static int16_t zfref;
 //table
 static uint8_t tbl_index;
 //Ocillation analyzer
-#define FFTN 32  //samples
 #define FSEG 7  //freq segment
 static int32_t fvalue;
 static void (*ffunc)();
 static uint16_t fdbase;
-static uint32_t felaps;
+static uint16_t ftbase;
+static uint16_t fspan;
 //Macros
 #define MAX(a,b) ((a)>(b)? a:b)
 #define MIN(a,b) ((a)<(b)? a:b)
@@ -94,9 +94,9 @@ static void setPol(float polr,float poli){
   hcoef1=2*polr;
   hcoef2=polr*polr+poli*poli;
 }
-static int sigduty(int tspan){
+static int sigduty(int tspan,int base){
   logger::ALOG *p1=logger::data+logger::length()-1;  //tail of data
-  logger::ALOG *p0=logger::data;   //head of data
+  logger::ALOG *p0=logger::data+base;   //head of data
   for(int i=1,ts0=p1->stamp,sig=0;;i++,p1--){
     int rat=sig*100/i;
     if(p1<=p0) return rat;
@@ -117,7 +117,6 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
     revs=iprof=iflag=zflag=0;
     wmax=wh=wro=wrps;
     bh=0;
-    felaps=0;
     setPol(PRM_ReadData(5),0);
   }
   revs++;
@@ -147,8 +146,6 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
   logger::stage.sigma=satuate(round(sigma),-32768,32767);
   switch(PRM_ReadData(3)){
     case 0: logger::stage.eval=satuate(iflag*20,0,255); break;
-    case 1: logger::stage.eval=satuate(bh-bho,0,255); break;
-    case 2: logger::stage.eval=satuate(felaps/100,0,255); break;
     case 4: logger::stage.eval=satuate(fvalue,0,255); break;
   }
 
@@ -199,31 +196,32 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
     case 4:
       if(ffunc==NULL){
         fdbase=logger::length();
+        fspan=PRM_ReadData(16);
         setTimeout.set(ffunc=[](){
-          int t0=micros();
-          int span1=PRM_ReadData1000x(16);
-          int np1=PRM_ReadData10x(18);
-          int np2=PRM_ReadData10x(19);
-          int cutoff=PRM_ReadData(20);
-          int scale=PRM_ReadData(21);
-          int fc[FSEG];
-          for(int n=0;n<FSEG;n++){
-            int period=interp(np1,np2,FSEG-1,n);
-            fc[n]=variation(span1,period,cutoff);
-          }
-          qsort(fc,FSEG,sizeof(fc[0]),[](const void *a, const void *b){
-            return *(int*)b-*(int*)a; //sort downward
-          });
-          fvalue=(fc[0]+fc[1]+fc[2])>>scale;
-          if(iflag==4 && sigduty(span1)<PRM_ReadData(17)){
-            iflag=5;
+          int wd=sigduty((int)fspan*1000,fdbase);
+          if(wd<PRM_ReadData(17)){
             dcore::shift();
+            ftbase=tusec/1000;
+            ffunc=[](){
+              int np1=(int)fspan*PRM_ReadData(18)/10;
+              int np2=(int)fspan*PRM_ReadData(19)/10;
+              int cutoff=PRM_ReadData100x(20);
+              int tspan=(1000*100+(tusec/1000-ftbase)*PRM_ReadData(22))*(int)fspan/100;
+              int fc[FSEG];
+              for(int n=0;n<FSEG;n++){
+                int period=interp(np1,np2,FSEG-1,n);
+                fc[n]=lbft::analyze(tspan,period,cutoff);
+              }
+              qsort(fc,FSEG,sizeof(fc[0]),[](const void *a, const void *b){
+                return *(int*)b-*(int*)a; //sort downward
+              });
+              fvalue=(fc[0]+fc[1]+fc[2])>>PRM_ReadData(21);
+              iflag=5;
+              if(dcore::RunLevel>0) setTimeout.set(ffunc,20);
+            };
           }
-          if(dcore::RunLevel>0){
-            setTimeout.set(ffunc,20);
-          }
-          felaps=micros()-t0;
-        },PRM_ReadData(16));
+          if(dcore::RunLevel>0) setTimeout.set(ffunc,20);
+        },fspan/2);
       }
     case 5:
       if(PRM_ReadData(7)>0 && bh<-(int)PRM_ReadData100x(7)) iflag=6;
