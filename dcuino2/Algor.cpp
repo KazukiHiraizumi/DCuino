@@ -6,14 +6,13 @@
 #include "Dcore.h"
 #include "Ble.h"
 
-#define APPROX 3    //available choice [1,2,3]
-#include "unittest/lbft.h"
+#include "unittest/toef.h"
 
 //params
 uint8_t algor_param[]={
   1,5,0,0,  150,200,50,0,
   120,30,0,0,  150,200,10,150,
-  150,20,0,0,  200,40,0,0,
+  20,40,0,0,  20,2,0,0,
   0,115,12,120,  25,117,33,107,
   64,60,128,30,  193,25,255,25,
   200,100,50,0,  10,50,60,0,
@@ -32,12 +31,10 @@ static float ibbase;
 //controls
 static uint8_t zflag,zovrd;
 static float zinteg;
-static void (*zfunc)();
-static int16_t zfref;
+static uint16_t zscan20;
 //table
 static uint8_t tbl_index;
 //Ocillation analyzer
-#define FSEG 7  //freq segment
 static int32_t fvalue;
 static void (*ffunc)();
 static uint16_t fdbase;
@@ -94,17 +91,6 @@ static void setPol(float polr,float poli){
   hcoef1=2*polr;
   hcoef2=polr*polr+poli*poli;
 }
-static int sigduty(int tspan,int base){
-  logger::ALOG *p1=logger::data+logger::length()-1;  //tail of data
-  logger::ALOG *p0=logger::data+base;   //head of data
-  for(int i=1,ts0=p1->stamp,sig=0;;i++,p1--){
-    int rat=sig*100/i;
-    if(p1<=p0) return rat;
-    int tsamp=ts0-p1->stamp;
-    if(tsamp>tspan) return rat;
-    if(p1->sigma>0) sig++;
-  }
-}
 void algor_prepare(){
   tusec=0;
 }
@@ -137,13 +123,10 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
   }
   wro=wrps;
   float dbh=(bh-bho)/dt;
-  float sigth=PRM_ReadData100x(9);
-  float sigma=(bh-sigth)+PRM_ReadData(8)*dbh/wrps;
 //Logger
   logger::stage.stamp=tusec;
   logger::stage.omega=round(wrps);
   logger::stage.beta=satuate(round(bh),-32768,32767);
-  logger::stage.sigma=satuate(round(sigma),-32768,32767);
   switch(PRM_ReadData(3)){
     case 0: logger::stage.eval=satuate(iflag*20,0,255); break;
     case 4: logger::stage.eval=satuate(fvalue,0,255); break;
@@ -151,6 +134,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
 
 //i-Block: base profile
   auto ivalue=readProf((24),tmsec,iprof);
+  int sigma=0;
   switch(iflag){
     case 0:
       iflag=1;
@@ -161,11 +145,11 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
     case 1:
       if(ivmax<ivalue) ivmax=ivalue;
       if(ibbase<bh) ibbase=bh;
-      if(wrps>PRM_ReadData10x(12)){
+      if(wrps>PRM_ReadData10x(8)){
         iflag=2;
         break;
       }
-      else if(tmsec>50 && bh<(int)PRM_ReadData100x(13)){
+      else if(tmsec>50 && bh<(int)PRM_ReadData100x(9)){
         iflag=4;
         wh=wrps;
         bh=ibbase=0;
@@ -177,7 +161,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
     case 2:
       if(ivmax<ivalue) ivmax=ivalue;
       if(ibbase<bh) ibbase=bh;
-      else if(bh<(int)PRM_ReadData100x(13)){
+      else if(bh<(int)PRM_ReadData100x(9)){
         iflag=3;
         ibbase=bh;
         dcore::shift();  //RunLevel =>4
@@ -186,7 +170,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
     case 3:
       if(ivmax<ivalue) ivmax=ivalue;
       if(ibbase>bh) ibbase=bh;
-      else if(bh-ibbase>(int)PRM_ReadData100x(14) || tmsec>PRM_ReadData(15)){
+      else if(bh-ibbase>(int)PRM_ReadData100x(10) || tmsec>PRM_ReadData10x(11)){
         iflag=4;
         wh=wrps;
         bh=ibbase=0;
@@ -194,34 +178,21 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       }
       break;
     case 4:
+      sigma= (bh-(int)PRM_ReadData100x(14))+PRM_ReadData(13)*dbh/wrps >0;
       if(ffunc==NULL){
         fdbase=logger::length();
-        fspan=PRM_ReadData(16);
+        fspan=PRM_ReadData10x(16);
         setTimeout.set(ffunc=[](){
-          int wd=sigduty((int)fspan*1000,fdbase);
-          if(wd<PRM_ReadData(17)){
+          if(iflag<5){
             dcore::shift();
             ftbase=tusec/1000;
-            ffunc=[](){
-              int np1=(int)fspan*PRM_ReadData(18)/10;
-              int np2=(int)fspan*PRM_ReadData(19)/10;
-              int cutoff=PRM_ReadData100x(20);
-              int tspan=(1000*100+(tusec/1000-ftbase)*PRM_ReadData(22))*(int)fspan/100;
-              int fc[FSEG];
-              for(int n=0;n<FSEG;n++){
-                int period=interp(np1,np2,FSEG-1,n);
-                fc[n]=lbft::analyze(tspan,period,cutoff);
-              }
-              qsort(fc,FSEG,sizeof(fc[0]),[](const void *a, const void *b){
-                return *(int*)b-*(int*)a; //sort downward
-              });
-              fvalue=(fc[0]+fc[1]+fc[2])>>PRM_ReadData(21);
-              iflag=5;
-              if(dcore::RunLevel>0) setTimeout.set(ffunc,20);
-            };
           }
+          int cutoff=PRM_ReadData(18);
+          int tspan=(1000*100+(tusec/1000-ftbase)*PRM_ReadData(17))*(int)fspan/100;
+          fvalue=toef::analyze(tspan,cutoff)>>PRM_ReadData(19);
+          iflag=5;
           if(dcore::RunLevel>0) setTimeout.set(ffunc,20);
-        },fspan/2);
+        },PRM_ReadData10x(12)-tusec/1000);
       }
     case 5:
       if(PRM_ReadData(7)>0 && bh<-(int)PRM_ReadData100x(7)) iflag=6;
@@ -235,7 +206,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
     case 0:   //speed is low
       zflag=1;
       zovrd=PRM_ReadData(42);
-      zfunc=NULL;
+      zscan20=0;
       zinteg=0;  //integral
     case 1:
       zflag=iflag;
@@ -251,40 +222,45 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       zcmd=zcmd*PRM_ReadData(41)/100;    //initial middle brake
       break;
     case 4:{  //Collision state(Sliding mode control)
-      if(sigma>0){
+      if(sigma){
         zcmd=ivmax*PRM_ReadData(44)/100;    //low brake
         zinteg+=bh*dt/2;
       }
-      int zadp=zinteg*PRM_ReadData(46)/100;
-      if(sigma<=0){
+      int zadp=zinteg*(int)PRM_ReadData(46)/100;
+      if(!sigma){
         int zmin=ivmax*PRM_ReadData(45)/100;
         zcmd-=zcmd*satuate(zadp,0,100)/100;
         if(zcmd<zmin) zcmd=zmin;
       }
       if(iflag>4){
         zflag=5;
-        zfref=PRM_ReadData(48);  //fvalue reference
-        if(PRM_ReadData(50)&1) zinteg=PRM_ReadData(50);
+        zscan20=0;
+        if(PRM_ReadData(50)&1) zinteg=PRM_ReadData(50); //integral initial
         else zinteg=satuate(zadp*PRM_ReadData(50)/100,0,100-PRM_ReadData(49)); //initial value valid ratio
-        setTimeout.set(zfunc=[](){
-          zinteg+=(fvalue-zfref)*(int)PRM_ReadData(51)/1000;
-          zinteg=satuate(zinteg,0,100-PRM_ReadData(49));
-          if(dcore::RunLevel>0){
-            setTimeout.set(zfunc,20);
-          }
-        },20);
       }
       if(PRM_ReadData(3)==4) logger::stage.eval=satuate(zinteg,0,255);
       else if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zadp,0,255);
       break;
     }
     case 5:{ //Steady state(PI control)
-      zcmd-=zcmd*zinteg/100;
-      float err=fvalue-zfref;
-      float kp= err>0? PRM_ReadData(53):PRM_ReadData(54);
-      zcmd-=zcmd*err*kp/100/100;
-      int zmin=ivmax*PRM_ReadData(52)/100;
-      if(zcmd<zmin) zcmd=zmin;
+      if(zscan20>20*1000){
+        int ref=PRM_ReadData(51);  //fvalue reference
+        int dead=PRM_ReadData(52);  //fvalue dead band
+        if(fvalue>ref+dead) zinteg+=0.1*PRM_ReadData(53);
+        if(fvalue<ref-dead) zinteg-=0.1*PRM_ReadData(54);
+        zinteg=satuate(zinteg,0,100);
+        zscan20-=20*1000;
+      }
+      else{
+        zscan20+=dtu;
+      }
+      int cmd=zcmd-zcmd*zinteg/100;
+      int cmin=ivmax*PRM_ReadData(48)/100;
+      if(cmd<cmin){
+        cmd=cmin;
+        zinteg=(zcmd-cmin)*100/zcmd;
+      }
+      zcmd=cmd;
       if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zinteg,0,255);
       break;
     }

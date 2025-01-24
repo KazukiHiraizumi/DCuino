@@ -9,7 +9,7 @@
 #include "invert2x2_c.h"
 #endif
 
-static void approx(logger::ALOG *pv,int samp,float *ans){
+static void approx(int *dat,int samp,float *ans){
   float sn0v=0,sn1v=0,sn2v=0,sn3v=0;
   float sn0=samp,sn1=0,sn2=0,sn3=0,sn4=0,sn5=0,sn6=0;
   for(int i=0;i<samp;i++){
@@ -23,17 +23,17 @@ static void approx(logger::ALOG *pv,int samp,float *ans){
     float n5=n4*n;
     float n6=n5*n;
 #endif
-    sn0v+=pv[i].beta;
-    sn1v+=pv[i].beta*n;
+    sn0v+=dat[i];
+    sn1v+=dat[i]*n;
     sn1+=n;
     sn2+=n2;
 #if APPROX>=2
-    sn2v+=pv[i].beta*n2;
+    sn2v+=dat[i]*n2;
     sn3+=n3;
     sn4+=n4;
 #endif
 #if APPROX>=3
-    sn3v+=pv[i].beta*n3;
+    sn3v+=dat[i]*n3;
     sn5+=n5;
     sn6+=n6;
 #endif
