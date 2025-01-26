@@ -201,7 +201,7 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       return ivmax;
   }
 
-  int zcmd=ivalue*zovrd/100;
+  int zcmd=satuate(ivalue,0,ivmax*zovrd/100);
   switch(zflag){
     case 0:   //speed is low
       zflag=1;
@@ -236,31 +236,36 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         zflag=5;
         zscan20=0;
         if(PRM_ReadData(50)&1) zinteg=PRM_ReadData(50); //integral initial
-        else zinteg=satuate(zadp*PRM_ReadData(50)/100,0,100-PRM_ReadData(49)); //initial value valid ratio
+        else zinteg=satuate((int)PRM_ReadData(50)-zadp,PRM_ReadData(49),100); //initial value valid ratio
       }
       if(PRM_ReadData(3)==4) logger::stage.eval=satuate(zinteg,0,255);
       else if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zadp,0,255);
       break;
     }
     case 5:{ //Steady state(PI control)
+      int ref=PRM_ReadData(51);  //fvalue reference
+      int dead=PRM_ReadData(52);  //fvalue dead band
+      int stat= fvalue>ref+dead? 1: fvalue<ref-dead? -1:0;
       if(zscan20>20*1000){
-        int ref=PRM_ReadData(51);  //fvalue reference
-        int dead=PRM_ReadData(52);  //fvalue dead band
-        if(fvalue>ref+dead) zinteg+=0.1*PRM_ReadData(53);
-        if(fvalue<ref-dead) zinteg-=0.1*PRM_ReadData(54);
+        float ri=(100+PRM_ReadData(53))*0.01;
+        if(stat>0) zinteg=zinteg/ri;
+        else if(stat>0) zinteg=zinteg*ri;
         zinteg=satuate(zinteg,0,100);
         zscan20-=20*1000;
       }
       else{
         zscan20+=dtu;
       }
-      int cmd=zcmd-zcmd*zinteg/100;
+      int cmd=zcmd*zinteg/100;
       int cmin=ivmax*PRM_ReadData(48)/100;
       if(cmd<cmin){
         cmd=cmin;
-        zinteg=(zcmd-cmin)*100/zcmd;
+        zinteg=cmin*100/zcmd;
       }
-      zcmd=cmd;
+      float rp=(100+PRM_ReadData(54))*0.01;
+      if(stat>0) zcmd=satuate(cmd/rp,cmin,zcmd);
+      else if(stat<0) zcmd=satuate(cmd*rp,cmin,zcmd);
+      else zcmd=cmd;
       if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zinteg,0,255);
       break;
     }

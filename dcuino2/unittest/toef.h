@@ -49,7 +49,17 @@ namespace toef{  //the Third Order Equation Filter
       float x2=(-b-sqD)/2/a;
       float y1=toe(x1);
       float y2=toe(x2);
-      float w=fabs(y2-y1)*nsamp/fabs(x2-x1)*cutoff/1e5;
+      if((x1<0 && x2<0) || (x1>nsamp && x2>nsamp)){
+        y1=toe(0);
+        y2=toe(nsamp);
+      }
+      else if((x1>0 && x1<nsamp) && (x2<0 || x2>nsamp)){
+        y2= x1<nsamp/2? toe(nsamp):toe(0);
+      }
+      else if((x1<0 || x1>nsamp) && (x2>0 && x2<nsamp)){
+        y1= x2<nsamp/2? toe(nsamp):toe(0);
+      }
+      float w=fabs(y1-y2)*cutoff/1e5;
       return sig*exp(-w*w);
     }
     else return sig;
@@ -64,7 +74,7 @@ namespace toef{  //the Third Order Equation Filter
     int ts0=p1->stamp;
     int vsamp=0;
     for(;;p1--){
-      if(p1<=p0) break;
+      if(p1<=p0) return -1;
       if(ts0-p1->stamp>samp) break;
       vsamp++;
     }

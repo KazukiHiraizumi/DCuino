@@ -40,6 +40,7 @@ int max3(int a,int b,int c){
 }
 
 #define APPROX 3
+//#define ONE_SPAN_TEST
 #include "dft.h"
 #include "toef.h"
 
@@ -65,6 +66,7 @@ int main(int argc,char **argv){
       &a->cmd);
     if(ret==EOF) break;
     a->stamp=(a-1)->stamp+a->interval;
+#ifndef ONE_SPAN_TEST
 //    int f1=lbft::analyze(300000,200,2000)*3>>2;
 //    int g1=lbft::analyze(300000,230,2000)*3>>2;
 //    int d1=lbft::analyze(300000,270,2000)*3>>2;
@@ -73,8 +75,12 @@ int main(int argc,char **argv){
 //    int d1=dft::analyze(200000,44)*3>>2;
 //    int f1=toef::analyze(200000,200)*3>>2;
     int g1=toef::analyze(200000,20)*3>>2;
-    int d1=toef::analyze(200000,50)*3>>2;
+    int d1=toef::analyze(200000,30)*3>>2;  
     printf("%lu %d %d %d %d %d %d\n",a->stamp,a->beta,a->sigma,a->duty,f1,g1,d1);
+#else
+    int d=toef::analyze(200000,50);
+    if(d>=0) break;
+#endif
   }
   fclose(f);
 
