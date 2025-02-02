@@ -3,29 +3,33 @@
 
 #include "lu.h"
 
+#ifndef MAXDIM
 #define MAXDIM 7
+#endif
 
-static void approx(int dim,int *dat,int samp,float *ans){
-  float snv[MAXDIM];
-  float snn[MAXDIM*2];
+static int approx(int dim,int *dat,int samp,double *ans){
+  double snv[MAXDIM];
+  double snn[MAXDIM*2];
   for(int i=0;i<dim;i++) snn[2*i]=snn[2*i+1]=snv[i]=0;
-  for(int i=0;i<samp;i++){
-    float nn=1;
-    float y=dat[i];
-    for(int d=0;d<dim*2;d++,nn*=i){
+  int hamp=samp>>1;
+  for(int i=0,n=-hamp;i<samp;i++,n++){
+    double nn=1;
+    double y=dat[i];
+    for(int d=0;d<dim*2;d++,nn*=n){
       snn[d]+=nn;
       if(d<dim) snv[d]+=nn*y;
     }
   }
-  float lu[MAXDIM*MAXDIM];
-  float *tg=lu;
+  double lu[MAXDIM*MAXDIM];
+  double *tg=lu;
   for(int i=0;i<dim;i++){
-    float *sc=snn+i;
+    double *sc=snn+i;
     for(int j=0;j<dim;j++,tg++) *tg=sc[j];
   }
   int pivot[MAXDIM];
   LU_decomposition(dim, pivot, lu);
   LU_solver(dim, pivot, lu, snv, ans);
+  return -hamp;
 }
 
 #endif

@@ -6,7 +6,8 @@
 #include "Dcore.h"
 #include "Ble.h"
 
-#include "unittest/toef.h"
+#define MAXDIM 5
+#include "unittest/noef.h"
 
 //params
 uint8_t algor_param[]={
@@ -28,6 +29,7 @@ static float wmax,wh,bh,hcoef1,hcoef2,bf,wro;
 static uint8_t iflag,iprof;
 static int16_t ivmax;
 static float ibbase;
+static uint32_t itsw;
 //controls
 static uint8_t zflag,zovrd;
 static float zinteg;
@@ -37,7 +39,6 @@ static uint8_t tbl_index;
 //Ocillation analyzer
 static int32_t fvalue;
 static void (*ffunc)();
-static uint16_t fdbase;
 static uint16_t ftbase;
 static uint16_t fspan;
 //Macros
@@ -55,7 +56,7 @@ static int interp(int y1,int y2,int dx,int w){
   else if(w>dx) return y2;
   else return (y2*w+y1*(dx-w))/dx;
 }
-static int readTbl4k(int p,int w){
+static int readTbl4k(int p,int w,int32_t &dec){
   auto x1=PRM_ReadData(p)<<4;
   auto x2=PRM_ReadData(p+2)<<4;
   uint8_t y1,y2;
@@ -70,17 +71,13 @@ static int readTbl4k(int p,int w){
   }
   y1=PRM_ReadData(p+1);
   y2=PRM_ReadData(p+3);
-  auto y=interp(y1,y2,x2-x1,w-x1);
+  int dx=x2-x1;
+  dec=((int)y2-(int)y1)*1000/dx;
+  auto y=interp(y1,y2,dx,w-x1);
   return MAX(0,y);
 }
-static int readTblN(int p,int b,int n){
-  if(b<PRM_ReadData(p)) return PRM_ReadData(p+1);
-  n=(n-1)<<1;
-  if(b>PRM_ReadData(p+n)) return PRM_ReadData(p+n+1);
-  return readTbl4k(p,b<<4);
-}
-static int readProf(int prof_tbl,int prof_tmsec,uint8_t &idx){
-  auto hval=readTbl4k(prof_tbl,prof_tmsec);
+static int readProf(int prof_tbl,int prof_tmsec,uint8_t &idx,int32_t &dec){
+  auto hval=readTbl4k(prof_tbl,prof_tmsec,dec);
   idx=tbl_index;
   return hval;
 }
@@ -133,7 +130,8 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
   }
 
 //i-Block: base profile
-  auto ivalue=readProf((24),tmsec,iprof);
+  int32_t igrad;
+  auto ivalue=readProf((24),tmsec,iprof,igrad);
   int sigma=0;
   switch(iflag){
     case 0:
@@ -174,25 +172,28 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
         iflag=4;
         wh=wrps;
         bh=ibbase=0;
+        itsw=0;
         setPol(PRM_ReadData(6),0);
       }
       break;
     case 4:
       sigma= (bh-(int)PRM_ReadData100x(14))+PRM_ReadData(13)*dbh/wrps >0;
-      if(ffunc==NULL){
-        fdbase=logger::length();
+      if(!sigma) itsw+=dtu;
+      else if(itsw>dtu) itsw-=dtu;
+      else itsw=0;
+      if(ffunc==NULL && itsw>PRM_ReadData10000x(12)){
         fspan=PRM_ReadData10x(16);
         setTimeout.set(ffunc=[](){
           if(iflag<5){
             dcore::shift();
             ftbase=tusec/1000;
           }
-          int cutoff=PRM_ReadData(18);
+          int order=PRM_ReadData(18);
           int tspan=(1000*100+(tusec/1000-ftbase)*PRM_ReadData(17))*(int)fspan/100;
-          fvalue=toef::analyze(tspan,cutoff)>>PRM_ReadData(19);
+          fvalue=noef::analyze(tspan,order)>>PRM_ReadData(19);
           iflag=5;
           if(dcore::RunLevel>0) setTimeout.set(ffunc,20);
-        },PRM_ReadData10x(12)-tusec/1000);
+        },PRM_ReadData10x(16));
       }
     case 5:
       if(PRM_ReadData(7)>0 && bh<-(int)PRM_ReadData100x(7)) iflag=6;
@@ -201,7 +202,9 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       return ivmax;
   }
 
-  int zcmd=satuate(ivalue,0,ivmax*zovrd/100);
+  int zcmd=ivalue;
+  int zmax=satuate(ivmax*zovrd/100,0,ivalue);
+  int zmin=ivmax*PRM_ReadData(48)/100;
   switch(zflag){
     case 0:   //speed is low
       zflag=1;
@@ -219,27 +222,28 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       break;
     case 3:   //down trend
       zflag=iflag;
-      zcmd=zcmd*PRM_ReadData(41)/100;    //initial middle brake
+      zcmd=(int)ivalue*PRM_ReadData(41)/100;    //initial middle brake
       break;
     case 4:{  //Collision state(Sliding mode control)
+      int cm0=zcmd;
       if(sigma){
-        zcmd=ivmax*PRM_ReadData(44)/100;    //low brake
         zinteg+=bh*dt/2;
+        zcmd=ivmax*PRM_ReadData(44)/100;    //low brake;
       }
-      int zadp=zinteg*(int)PRM_ReadData(46)/100;
+      int cm1=satuate(cm0-cm0*zinteg/100*PRM_ReadData(46)/100,0,zmax);  //high brake
       if(!sigma){
-        int zmin=ivmax*PRM_ReadData(45)/100;
-        zcmd-=zcmd*satuate(zadp,0,100)/100;
-        if(zcmd<zmin) zcmd=zmin;
+        zcmd=satuate(cm1,ivmax*PRM_ReadData(45)/100,zmax);
       }
       if(iflag>4){
+        float fz=cm1*PRM_ReadData(50)/100;
+        if(PRM_ReadData(50)<100) fz=cm0-cm0*fvalue/100*PRM_ReadData(50)/100;
+        zinteg=satuate(fz,ivmax*PRM_ReadData(49)/100,zmax); //initial value valid ratio
+        fvalue=0;
         zflag=5;
         zscan20=0;
-        if(PRM_ReadData(50)&1) zinteg=PRM_ReadData(50); //integral initial
-        else zinteg=satuate((int)PRM_ReadData(50)-zadp,PRM_ReadData(49),100); //initial value valid ratio
       }
       if(PRM_ReadData(3)==4) logger::stage.eval=satuate(zinteg,0,255);
-      else if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zadp,0,255);
+      else if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zinteg,0,255);
       break;
     }
     case 5:{ //Steady state(PI control)
@@ -247,24 +251,26 @@ uint16_t algor_update(int32_t dtu,int32_t otu){
       int dead=PRM_ReadData(52);  //fvalue dead band
       int stat= fvalue>ref+dead? 1: fvalue<ref-dead? -1:0;
       if(zscan20>20*1000){
+        float dz=igrad*0.001*20*zinteg/(int)ivalue;
         float ri=(100+PRM_ReadData(53))*0.01;
-        if(stat>0) zinteg=zinteg/ri;
-        else if(stat>0) zinteg=zinteg*ri;
-        zinteg=satuate(zinteg,0,100);
+        if(stat>0){
+          zinteg=zinteg/ri;
+          if(dz<0) zinteg+=dz;
+        }
+        else if(stat<0){
+          zinteg=zinteg*ri;
+          if(dz>0) zinteg+=dz;
+        }
+        else zinteg+=dz;
+        zinteg=satuate(zinteg,zmin,zmax);
         zscan20-=20*1000;
       }
       else{
         zscan20+=dtu;
       }
-      int cmd=zcmd*zinteg/100;
-      int cmin=ivmax*PRM_ReadData(48)/100;
-      if(cmd<cmin){
-        cmd=cmin;
-        zinteg=cmin*100/zcmd;
-      }
-      float rp=(100+PRM_ReadData(54))*0.01;
-      if(stat>0) zcmd=satuate(cmd/rp,cmin,zcmd);
-      else if(stat<0) zcmd=satuate(cmd*rp,cmin,zcmd);
+      int cmd=zinteg;
+      if(stat>0) zcmd=satuate(cmd*(100-PRM_ReadData(54))/100,zmin,zmax);
+      else if(stat<0) zcmd=satuate(cmd+zmax*PRM_ReadData(55)/100,zmin,zmax);
       else zcmd=cmd;
       if(PRM_ReadData(3)==5) logger::stage.eval=satuate(zinteg,0,255);
       break;

@@ -7,10 +7,10 @@
 
 #define MEPS_LU (1e-10)
 
-int LU_decomposition(int dim, int *pivot, float *matrix) {
+int LU_decomposition(int dim, int *pivot, double *matrix) {
   int row, col, k;
   int ip, ip_tmp;
-  float tmp_val, max_val;
+  double tmp_val, max_val;
 
   for (k = 0; k < dim; k++) pivot[k] = k;
   for (k = 0; k < dim - 1; k++) {
@@ -58,9 +58,9 @@ int LU_decomposition(int dim, int *pivot, float *matrix) {
   return 0;
 }
 
-int LU_solver(int dim, int *pivot, float *matrix, float *vec, float *y) {
+int LU_solver(int dim, int *pivot, double *matrix, double *vec, double *y) {
   int row, col;
-  float sum;
+  double sum;
 
   for (row = 0; row < dim; row++) {
     sum = vec[pivot[row]];

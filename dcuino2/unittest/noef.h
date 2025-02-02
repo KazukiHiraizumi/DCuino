@@ -19,23 +19,25 @@ namespace noef{  //the Nth Order Equation Filter
     if(p1<p0+nsamp) return -1;
     logger::ALOG *pv=p1-nsamp;
 
-    int cval[200],cfit[200];
+    int cval[200];
     for(int i=0;i<nsamp;i++){
       cval[i]=pv[i].beta;
     }
-    float coef[10];
-    approx(dim,cval,nsamp,coef);
-    auto neq=[&](float x){
-      float y=0;
+    double coef[7];
+    int nofs=approx(dim,cval,nsamp,coef);
+    auto neq=[&](double x){
+      double y=0;
+      x+=nofs;
       for(int i=dim-1;i>=0;i--) y=y*x+coef[i];
       return y;
     };
     for(int i=0;i<nsamp;i++){
-      int ccen=neq(i);
+      int cc=neq(i);
+      int cv=cval[i];
+      cval[i]=(cv-cc);
 #ifdef ONE_SPAN_TEST
-      printf("%lu %d %d %d %d %d %d\n",pv[i].stamp,pv[i].beta,pv[i].sigma,pv[i].duty,cval[i],ccen,cval[i]-ccen);
+      printf("%lu %d %d %d %d %d %d\n",pv[i].stamp,pv[i].beta,pv[i].sigma,pv[i].duty,cv,cc,cval[i]);
 #endif
-      cval[i]-=cfit[i]=ccen;
     }
     float sig=variation(cval,nsamp);
     return sig;
