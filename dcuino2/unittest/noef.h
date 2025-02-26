@@ -27,7 +27,7 @@ namespace noef{  //the Nth Order Equation Filter
     int nofs=approx(dim,cval,nsamp,coef);
     auto neq=[&](double x){
       double y=0;
-      x+=nofs;
+      x=(x-nofs)/nofs;
       for(int i=dim-1;i>=0;i--) y=y*x+coef[i];
       return y;
     };
